@@ -280,3 +280,159 @@ LEFT JOIN instructors i ON c.instructor_id = i.instructor_id;
 | **FILTER CONDITION** | Condition used to restrict records retrieved in a SQL query |
 | **NULL** | A marker used in SQL to indicate that a value does not exist |
 | **ARITHMETIC FUNCTION** | Operations such as addition, subtraction in SQL queries to manipulate data |
+
+
+---
+
+## Topic 8: Exam Results Table (SELECT with JOIN)
+
+### Problem (Q12): Display student_name, course_name, marks, and result_status for every student who has an exam result
+
+**Tables needed:**
+
+| Data Required | Source Table | Join Condition |
+|---|---|---|
+| Student name | `students` | `er.student_id = s.student_id` |
+| Course name | `courses` | `er.course_id = c.course_id` |
+| Marks | `exam_results` | (primary source table) |
+| Result status | `exam_results` | (primary source table) |
+
+```sql
+SELECT s.student_name, c.course_name, er.marks, er.result_status
+FROM exam_results er
+INNER JOIN students s ON er.student_id = s.student_id
+INNER JOIN courses c ON er.course_id = c.course_id;
+```
+
+---
+
+### Problem (Q13): Display student_name, course_name, classes_attended, total_classes, and marks (combine attendance + exam data)
+
+**Tables needed:**
+
+| Data Required | Source Table | Join Condition |
+|---|---|---|
+| Student name | `students` | `s.student_id = a.student_id` |
+| Course name | `courses` | `c.course_id = e.course_id` |
+| Classes attended | `attendance` | (primary source) |
+| Total classes | `attendance` | (primary source) |
+| Marks | `exam_results` | `er.student_id = s.student_id AND er.course_id = c.course_id` |
+
+```sql
+SELECT s.student_name, c.course_name, a.classes_attended, a.total_classes, er.marks
+FROM enrollments e
+JOIN students s ON e.student_id = s.student_id
+JOIN courses c ON e.course_id = c.course_id
+LEFT JOIN attendance a ON s.student_id = a.student_id AND c.course_id = a.course_id
+LEFT JOIN exam_results er ON s.student_id = er.student_id AND c.course_id = er.course_id;
+```
+
+---
+
+## Topic 9: Filtering with JOINs (Nested / Subquery)
+
+### Problem (Q14): Find all students enrolled in courses taught by Dr. Sharma
+
+**Approach: NESTED QUERY (Subquery)**
+
+Dr. Sharma = instructor_id 201
+
+```sql
+SELECT student_name
+FROM students
+WHERE student_id IN (
+    SELECT student_id
+    FROM enrollments
+    WHERE course_id IN (
+        SELECT course_id
+        FROM courses
+        WHERE instructor_id = 201
+    )
+);
+```
+
+**Alternative using JOINs:**
+
+```sql
+SELECT DISTINCT s.student_name
+FROM enrollments e
+JOIN students s ON e.student_id = s.student_id
+JOIN courses c ON e.course_id = c.course_id
+WHERE c.instructor_id = 201;
+```
+
+---
+
+## Topic 10: Finding Unmatched Records (LEFT JOIN + IS NULL)
+
+### Problem (Q15): Find students who are enrolled in a course but do NOT have a payment record
+
+```sql
+SELECT s.student_name
+FROM enrollments e
+JOIN students s ON e.student_id = s.student_id
+LEFT JOIN payments p ON s.student_id = p.student_id
+WHERE p.payment_id IS NULL;
+```
+
+**Logic:** LEFT JOIN payments on student_id — students who DON'T have a payment will have `NULL` for all payment columns.
+
+### Problem (Q16): Find students whose attendance is below 60%
+
+```sql
+SELECT s.student_name, a.course_id, a.classes_attended, a.total_classes
+FROM attendance a
+JOIN students s ON a.student_id = s.student_id
+WHERE 100.0 * a.classes_attended / a.total_classes < 60;
+```
+
+**For students from Lab 2 data:** These would be students 105, 107, 111, and 115.
+
+---
+
+## Topic 11: UPDATE with JOIN on Complex Conditions
+
+### Problem (Q17): Update result_status to 'Fail' for all students whose marks are less than 40
+
+```sql
+UPDATE exam_results
+SET result_status = 'Fail'
+WHERE marks < 40;
+```
+
+### Problem (Q18): Update payment_status to 'Pending' for students enrolled in 'Database Management Systems' AND who have failed the exam
+
+**What this means:**
+1. Find students in DBMS (course_id = 301) from enrollments
+2. Among those, find who failed the exam (result_status = 'Fail' OR marks < 40)
+3. Update their payment_status to 'Pending'
+
+**Approach: UPDATE with JOIN via subquery**
+
+```sql
+UPDATE payments p
+SET payment_status = 'Pending'
+WHERE student_id IN (
+    SELECT er.student_id
+    FROM enrollments e
+    JOIN courses c ON e.course_id = c.course_id
+    JOIN exam_results er ON e.student_id = er.student_id AND e.course_id = er.course_id
+    WHERE c.course_name = 'Database Management Systems'
+    AND er.result_status = 'Fail'
+);
+```
+
+**Alternative using JOIN directly in UPDATE:**
+
+```sql
+UPDATE payments p
+JOIN (
+    SELECT er.student_id
+    FROM enrollments e
+    JOIN courses c ON e.course_id = c.course_id
+    JOIN exam_results er ON e.student_id = er.student_id AND e.course_id = er.course_id
+    WHERE c.course_name = 'Database Management Systems'
+    AND er.result_status = 'Fail'
+) filtered ON p.student_id = filtered.student_id
+SET p.payment_status = 'Pending';
+```
