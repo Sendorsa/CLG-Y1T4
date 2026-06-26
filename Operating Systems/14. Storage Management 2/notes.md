@@ -37,15 +37,30 @@ File Name → Directory Entry → Inode (metadata + block addresses) → Data Bl
 - Allows **same file** to be accessible by **one or more names**
 - Multiple directory entries point to the **same inode number**
 - All links are equal — no concept of "original" vs "copy"
+- Both names share the same content
+- Removing one name does not delete data if another hard link still exists
+- Data is only deleted when the link count reaches zero
+- Typically cannot cross file systems or link to directories
 
 ### Symbolic (Soft) Link
 - A **shortcut** that points to the original file by name/path
 - Creates a new inode; the symlink's data blocks contain the path to the target file
 - Behaves like a Windows shortcut or macOS alias
+- Has its own unique inode
+- If the original target is deleted, the symbolic link becomes broken ("dangling link")
+- Can cross file systems and link to directories
+
+## 4. File Deletion Rules
+
+### How Files Are Deleted
+- Deleting a file name simply removes the directory label
+- File blocks are only **freed** when two conditions are met:
+  1. The link count equals zero
+  2. No process has the file currently open ("open by process" = false)
 
 ---
 
-## 4. Key Takeaways
+## 5. Key Takeaways
 - File system **separates names, metadata, and data** for flexibility
 - **Inodes** are the backbone — they hold metadata and point to data blocks
 - **Multiple links** enable sharing files without duplicating data
@@ -53,31 +68,94 @@ File Name → Directory Entry → Inode (metadata + block addresses) → Data Bl
 
 ---
 
-## 5. File System Terms
+## 6. File System Terms
 
 ### Glossary
 | Term | Definition |
 |------|------------|
 | **Inode** | An inode stores metadata about a file, including permissions and file size. |
-| **Journaling** | Journaling records planned metadata changes to maintain file system consistency after crashes. |
+| **Journaling** | Journaling records planned metadata changes to maintain file system consistency after crashes. If a crash occurs, the OS reads the journal upon restart and replays unfinished updates, returning the file system to a consistent state. |
 | **File Descriptor** | File descriptor is a token assigned when a file is opened and is used for file operations. |
 
-## 6. Disk Scheduling Algorithms
+### Quiz Key Points
+- **Hard link shares inode** — hard links directly share the same inode number
+- **Write() returns successfully** does not guarantee data is on disk yet — data may still be in the OS page cache
+- If a process has a file open and another command deletes it, the **file may still exist** (blocks only freed when link count = 0 AND no processes have it open)
 
-| Algorithm | Description |
-|-----------|-------------|
-| **LOOK Scheduling** | LOOK serves requests only up to the last pending one in one direction, then reverses. |
-| **SCAN Scheduling** | SCAN moves to the end of the disk before reversing direction, like an elevator. |
-| **C-LOOK Scheduling** | C-LOOK is a circular version of LOOK, jumping to the start after serving the last request. |
-| **C-SCAN Scheduling** | C-SCAN is a circular version of SCAN, returning to start after reaching the disk end. |
+---
 
-## 7. Storage Devices & I/O Operations
+## 7. Crash Consistency and Journaling
 
-| Term | Definition |
-|------|------------|
-| **NVMe** | NVMe is a high-speed storage protocol designed for flash storage, allowing parallel access. |
-| **SSD** | Solid State Drive (SSD) is a storage device using flash memory, having no moving parts. |
-| **Write and Fsync** | Write places data in OS cache first, while fsync forces data write to disk for durability. |
+### Problem
+- Updating a file system requires multiple related changes (data, metadata, directory entry, free-block information)
+- System crashes during partial updates can cause inconsistent or corrupted metadata
+
+### Solution: Journaling
+- A temporary log where the file system records a description of intended metadata updates **before** making permanent changes
+- If a crash occurs, the OS reads the journal upon restart and replays unfinished updates
+- Returns the file system to a consistent state
+
+---
+
+## 8. File Allocation Methods
+
+| Method | Description | Advantages | Disadvantages |
+|--------|-------------|------------|---------------|
+| **Contiguous** | Blocks are stored together sequentially | Fast direct access | External fragmentation |
+| **Linked** | Scattered blocks linked as a chain | Easy growth | Slow direct access, pointer overhead |
+| **Indexed** | An index block stores block addresses | Supports random access | Index-block overhead |
+
+---
+
+## 9. Disk Scheduling
+
+### Core Concepts
+- **Disk Scheduling:** The OS decides the order in which pending disk I/O requests are served to improve efficiency
+- **Seek Time:** The time taken by the disk head to move to the required track
+- **Total Head Movement:** The sum of all track movements (New position - Current position) while serving requests. Less head movement = less seek time
+
+### Algorithms
+
+| Algorithm | Main Idea | Advantages | Disadvantages |
+|-----------|-----------|------------|---------------|
+| **FCFS** (First Come First Serve) | Serves requests in exact arrival order | Simple; fair based on arrival | Large head movement; poor performance |
+| **SSTF** (Shortest Seek Time First) | Chooses the request closest to current head position | Reduces head movement vs FCFS; better avg seek time | May cause starvation for far-away requests |
+| **SCAN** (Elevator) | Moves in one direction to physical end, then reverses | Better fairness than SSTF; good for many waiting requests | Travels to very end even if no requests there |
+| **LOOK** | Like SCAN, but reverses at last pending request (not physical end) | Avoids unnecessary travel to disk ends; better than SCAN | Direction reversal can still delay some requests |
+| **C-SCAN** (Circular SCAN) | Moves in one direction to end, then jumps back to beginning | Uniform waiting time; good fairness | Jump from end to beginning adds extra movement |
+| **C-LOOK** (Circular LOOK) | Moves in one direction till last request, then jumps directly to first request on other side | Avoids going to physical ends; more efficient than C-SCAN | Can be less fair for requests near beginning or end |
+
+---
+
+## 10. Modern Storage and I/O Performance
+
+### Storage Technologies Comparison
+
+| Feature | HDD (Hard Disk Drive) | SSD (Solid State Drive) | NVMe SSD |
+|---------|----------------------|------------------------|----------|
+| **Technology** | Mechanical (spinning magnetic platters, moving read/write heads) | NAND Flash via SATA (no moving parts) | NAND Flash over PCIe (NVMe protocol) |
+| **Performance** | Slower (lower IOPS and throughput) | Faster than HDD | Fastest (very high IOPS/throughput, low latency) |
+| **Durability** | Vulnerable to shock and vibration | Shock resistant; more durable | Most durable and reliable |
+| **Noise** | Higher (spinning and seeking noise) | Silent | Silent |
+
+### Performance Metrics
+
+| Metric | Description | Example |
+|--------|-------------|---------|
+| **Latency** | Time required to complete a single I/O request | 2 ms (lower = faster) |
+| **Throughput** | Total data transferred per unit time | 500 MB/s |
+| **IOPS** | Input/Output Operations Per Second — raw number of ops/sec regardless of size | 100,000 IOPS |
+| **Queue Depth** | Number of outstanding I/O requests waiting/processing simultaneously | Optimizing balances throughput and latency |
+
+### I/O Optimization Concepts
+
+- **Page Cache:** OS mechanism that acts as a RAM buffer between applications and storage. A "cold read" goes to slower storage; subsequent "warm reads" fetch data from RAM cache rapidly
+- **Buffered vs Direct I/O:**
+  - *Buffered I/O* uses the OS page cache
+  - *Direct I/O* bypasses the OS page cache (databases use this to maintain their own caching and avoid double caching)
+- **Blocking vs Async I/O:**
+  - *Blocking I/O* forces the app to wait for the I/O request to finish
+  - *Async I/O* allows the app to submit a request and continue processing other tasks, waiting for a completion notification
 
 ---
 
